@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Comment Filter</title>
+  <style>
+    body {
+      width: 400px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+    }
+    .header {
+      font-weight: bold;
+      margin-bottom: 10px;
+      font-size: 18px;
+      color: #4285f4;
+    }
+    .tabs {
+      display: flex;
+      margin-bottom: 15px;
+      border-bottom: 1px solid #ccc;
+    }
+    .tab {
+      padding: 8px 15px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-bottom: none;
+      background-color: #f5f5f5;
+      margin-right: 5px;
+      border-radius: 4px 4px 0 0;
+    }
+    .tab.active {
+      background-color: white;
+      border-color: #ccc;
+      border-bottom-color: white;
+      margin-bottom: -1px;
+      font-weight: bold;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      margin-bottom: 10px;
+      font-family: monospace;
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .button-container {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 8px 12px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #3367d6;
+    }
+    .options {
+      margin-top: 15px;
+      border-top: 1px solid #eee;
+      padding-top: 15px;
+    }
+    .option-item {
+      margin-bottom: 10px;
+    }
+    .status {
+      margin-top: 10px;
+      font-style: italic;
+      color: #4285f4;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">Comment Filter</div>
+  
+  <div class="tabs">
+    <div class="tab active" data-tab="allowlist">Allowlist</div>
+    <div class="tab" data-tab="blocklist">Blocklist</div>
+    <div class="tab" data-tab="options">Options</div>
+  </div>
+  
+  <div class="tab-content active" id="allowlist-tab">
+    <p class="help-text">Enter usernames (one per line) to show only their comments and threads they participate in:</p>
+    <textarea id="allowlist" placeholder="e.g. Gary says"></textarea>
+    <div class="button-container">
+      <button id="save-allowlist">Save Allowlist</button>
+    </div>
+  </div>
+  
+  <div class="tab-content" id="blocklist-tab">
+    <p class="help-text">Enter usernames (one per line) to hide their comments:</p>
+    <textarea id="blocklist" placeholder="e.g. unwanted-user"></textarea>
+    <div class="button-container">
+      <button id="save-blocklist">Save Blocklist</button>
+    </div>
+  </div>
+  
+  <div class="tab-content" id="options-tab">
+    <div class="option-item">
+      <input type="checkbox" id="filterEnabled" checked>
+      <label for="filterEnabled">Enable filtering</label>
+    </div>
+    <div class="option-item">
+      <input type="checkbox" id="showThreads" checked>
+      <label for="showThreads">Show entire threads containing allowlisted users</label>
+    </div>
+    <div class="option-item">
+      <input type="checkbox" id="hideBlockedThreads">
+      <label for="hideBlockedThreads">Hide entire threads containing blocklisted users</label>
+    </div>
+    <div class="option-item">
+      <input type="checkbox" id="emptyAllowlistShowsAll" checked>
+      <label for="emptyAllowlistShowsAll">When allowlist is empty, show all non-blocked comments</label>
+    </div>
+    <div class="button-container">
+      <button id="save-options">Save Options</button>
+    </div>
+  </div>
+  
+  <div id="status" class="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

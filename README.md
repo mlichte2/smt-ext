@@ -1,8 +1,6 @@
 # SMT Comment Filter
 
-A Chrome extension that filters comments on
-[smartmoneytrackerpremium.com](https://smartmoneytrackerpremium.com) by
-username. Maintain an **allowlist** to show only the people you want to read,
+A Chrome extension that filters comments on the SMT by username. Maintain an **allowlist** to show only the people you want to read,
 and a **blocklist** to hide the rest.
 
 ## Features
@@ -33,13 +31,13 @@ Click the extension icon to open the popup.
 - **Allowlist tab** – one username per line. Save.
 - **Blocklist tab** – one username per line. Save.
 - **Options tab**:
-  - *Enable filtering* – master on/off switch.
-  - *Show entire threads containing allowlisted users* – include replies and
+  - _Enable filtering_ – master on/off switch.
+  - _Show entire threads containing allowlisted users_ – include replies and
     parents of an allowlisted commenter.
-  - *Hide entire threads containing blocklisted users* – hide whole threads
+  - _Hide entire threads containing blocklisted users_ – hide whole threads
     if they contain a blocklisted commenter (otherwise only the blocked
     comment itself is hidden).
-  - *When allowlist is empty, show all non-blocked comments* – disable to
+  - _When allowlist is empty, show all non-blocked comments_ – disable to
     hide everything when the allowlist is empty.
 
 If a username appears in both lists, the **blocklist wins** and the popup
@@ -47,12 +45,12 @@ will show a notice.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `manifest.json` | MV3 manifest, permissions, host matches |
-| `content.js`    | Injected on SMT pages; reads settings, filters comments, watches DOM |
-| `popup.html` / `popup.js` | The toolbar popup UI |
-| `images/`       | Toolbar icons |
+| File                      | Purpose                                                              |
+| ------------------------- | -------------------------------------------------------------------- |
+| `manifest.json`           | MV3 manifest, permissions, host matches                              |
+| `content.js`              | Injected on SMT pages; reads settings, filters comments, watches DOM |
+| `popup.html` / `popup.js` | The toolbar popup UI                                                 |
+| `images/`                 | Toolbar icons                                                        |
 
 ## Settings storage
 

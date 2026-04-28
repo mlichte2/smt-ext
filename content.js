@@ -1,4 +1,4 @@
-// Global variables
+// Global settings (defaults; replaced once storage loads)
 let settings = {
   allowlist: [],
   blocklist: [],
@@ -8,173 +8,191 @@ let settings = {
   emptyAllowlistShowsAll: true,
 };
 
-// Style constant for blocklisted users
+// Inject style sheet once on init.
 const addStyles = () => {
   const styleId = "comment-filter-styles";
-  if (!document.getElementById(styleId)) {
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = `
-        .blocklisted-user-comment {
-          opacity: 0.4;
-          transition: opacity 0.3s ease;
-        }
-      `;
-    document.head.appendChild(style);
-  }
+  if (document.getElementById(styleId)) return;
+  const style = document.createElement("style");
+  style.id = styleId;
+  style.textContent = `
+    .blocklisted-user-comment {
+      opacity: 0.4;
+      transition: opacity 0.3s ease;
+    }
+  `;
+  document.head.appendChild(style);
 };
 
-// Get username from comment
+// Normalize a username for comparison: trim, lowercase, NBSP -> space, strip
+// trailing " says"/" says:" suffix (legacy markup) so old saved lists keep
+// working after the site moved <span class="says"> outside of .fn.
+const normalizeUsername = (raw) => {
+  if (!raw) return "";
+  return raw
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+says:?\s*$/i, "")
+    .trim();
+};
+
+// Pull username text from a comment <li>, normalized.
 const getUsernameFromComment = (commentLi) => {
-  const usernameElement = commentLi.querySelector(".fn");
-  if (!usernameElement) return null;
-  return usernameElement.textContent.trim();
+  const el = commentLi.querySelector(".fn");
+  if (!el) return "";
+  return normalizeUsername(el.textContent || "");
 };
 
-// Check if a comment is from an allowlisted user
-const isAllowlistedComment = (commentLi) => {
-  const username = getUsernameFromComment(commentLi);
-  return username && settings.allowlist.includes(username);
-};
-
-// Check if a comment is from a blocklisted user
-const isBlocklistedComment = (commentLi) => {
-  const username = getUsernameFromComment(commentLi);
-  return username && settings.blocklist.includes(username);
-};
-
-// Check if comment is part of a thread containing an allowlisted user
-const isPartOfAllowlistedThread = (commentLi) => {
-  if (!settings.showThreads) return false;
-
-  // Check if this comment is from an allowlisted user
-  if (isAllowlistedComment(commentLi)) return true;
-
-  // Check if any parent comment is from an allowlisted user
-  let parent = commentLi.parentElement;
-  while (parent) {
-    if (parent.tagName === "UL" && parent.classList.contains("children")) {
-      const parentLi = parent.parentElement;
-      if (
-        parentLi &&
-        parentLi.classList.contains("comment") &&
-        isAllowlistedComment(parentLi)
-      ) {
-        return true;
-      }
-      parent = parentLi;
-    } else {
-      parent = parent.parentElement;
-    }
-  }
-
-  // Check if any child comment is from an allowlisted user
-  const childrenUl = commentLi.querySelector("ul.children");
-  if (childrenUl) {
-    const childrenLis = childrenUl.querySelectorAll("li.comment");
-    for (const childLi of childrenLis) {
-      if (isAllowlistedComment(childLi)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-};
-
-// Check if comment is part of a thread containing a blocklisted user
-const isPartOfBlocklistedThread = (commentLi) => {
-  if (!settings.hideBlockedThreads) return false;
-
-  // Check if this comment is from a blocklisted user
-  if (isBlocklistedComment(commentLi)) return true;
-
-  // Check if any parent comment is from a blocklisted user
-  let parent = commentLi.parentElement;
-  while (parent) {
-    if (parent.tagName === "UL" && parent.classList.contains("children")) {
-      const parentLi = parent.parentElement;
-      if (
-        parentLi &&
-        parentLi.classList.contains("comment") &&
-        isBlocklistedComment(parentLi)
-      ) {
-        return true;
-      }
-      parent = parentLi;
-    } else {
-      parent = parent.parentElement;
-    }
-  }
-
-  // Check if any child comment is from a blocklisted user
-  const childrenUl = commentLi.querySelector("ul.children");
-  if (childrenUl) {
-    const childrenLis = childrenUl.querySelectorAll("li.comment");
-    for (const childLi of childrenLis) {
-      if (isBlocklistedComment(childLi)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-};
-
-// Apply styles to a comment
-const applyCommentStyles = (commentLi) => {
-  const commentDiv = commentLi.querySelector('div[id^="comment-"]');
-  if (!commentDiv) return;
-
-  // Reset styles
-  commentDiv.classList.remove("blocklisted-user-comment");
-
-  // Apply blocklisted style only
-  if (isBlocklistedComment(commentLi)) {
-    commentDiv.classList.add("blocklisted-user-comment");
-  }
-};
-
-// Determine if a comment should be shown or hidden
-const shouldShowComment = (commentLi) => {
-  // If filtering is disabled, show everything
-  if (!settings.filterEnabled) return true;
-
-  // Always hide blocklisted users or their threads if that option is enabled
-  if (isBlocklistedComment(commentLi) || isPartOfBlocklistedThread(commentLi)) {
-    return false;
-  }
-
-  // If allowlist is empty and the option is enabled, show all non-blocked comments
-  if (settings.allowlist.length === 0 && settings.emptyAllowlistShowsAll) {
-    return true;
-  }
-
-  // Show allowlisted users and (optionally) their threads
-  return (
-    isAllowlistedComment(commentLi) || isPartOfAllowlistedThread(commentLi)
-  );
-};
-
-// Apply filtering to all comments
+// Single O(N) filtering pass.
+//
+// Builds a per-comment map with {username, isAllow, isBlock, parent, children}
+// then runs two DFS passes (subtree flags via post-order, ancestor flags via
+// pre-order). Visibility decision per comment is then O(1).
 const applyFilter = () => {
-  // Add styles to the document
-  addStyles();
+  const list = document.querySelectorAll("li.comment");
+  if (list.length === 0) return;
 
-  // Process all comment elements
-  document.querySelectorAll("li.comment").forEach((commentLi) => {
-    // Determine visibility
-    commentLi.style.display = shouldShowComment(commentLi) ? "" : "none";
+  const allowSet = new Set(
+    settings.allowlist.map(normalizeUsername).filter(Boolean)
+  );
+  const blockSet = new Set(
+    settings.blocklist.map(normalizeUsername).filter(Boolean)
+  );
 
-    // Apply styling
-    applyCommentStyles(commentLi);
+  // Build per-comment nodes
+  const nodes = new Map();
+  for (const li of list) {
+    const username = getUsernameFromComment(li);
+    nodes.set(li, {
+      li,
+      username,
+      isAllow: !!username && allowSet.has(username),
+      isBlock: !!username && blockSet.has(username),
+      parent: null,
+      children: [],
+      subtreeHasAllow: false,
+      subtreeHasBlock: false,
+      ancestorHasAllow: false,
+      ancestorHasBlock: false,
+    });
+  }
+
+  // Build parent / children edges using closest("li.comment") on the parent
+  // chain. Works regardless of whether replies are wrapped in <ul class=children>
+  // or some other container.
+  for (const node of nodes.values()) {
+    const parentEl = node.li.parentElement;
+    const parentLi = parentEl ? parentEl.closest("li.comment") : null;
+    if (parentLi && nodes.has(parentLi)) {
+      const parent = nodes.get(parentLi);
+      node.parent = parent;
+      parent.children.push(node);
+    }
+  }
+
+  const roots = [];
+  for (const node of nodes.values()) {
+    if (!node.parent) roots.push(node);
+  }
+
+  // Iterative post-order DFS to compute subtree flags
+  const postOrder = (root, fn) => {
+    const stack = [{ node: root, processed: false }];
+    while (stack.length) {
+      const frame = stack[stack.length - 1];
+      if (!frame.processed) {
+        frame.processed = true;
+        for (const c of frame.node.children) {
+          stack.push({ node: c, processed: false });
+        }
+      } else {
+        stack.pop();
+        fn(frame.node);
+      }
+    }
+  };
+
+  for (const root of roots) {
+    postOrder(root, (n) => {
+      n.subtreeHasAllow = n.isAllow;
+      n.subtreeHasBlock = n.isBlock;
+      for (const c of n.children) {
+        if (c.subtreeHasAllow || c.isAllow) n.subtreeHasAllow = true;
+        if (c.subtreeHasBlock || c.isBlock) n.subtreeHasBlock = true;
+      }
+    });
+  }
+
+  // Iterative pre-order DFS to compute ancestor flags
+  const preOrder = (root, fn) => {
+    const stack = [root];
+    while (stack.length) {
+      const n = stack.pop();
+      fn(n);
+      for (const c of n.children) stack.push(c);
+    }
+  };
+
+  for (const root of roots) {
+    preOrder(root, (n) => {
+      if (n.parent) {
+        n.ancestorHasAllow =
+          n.parent.ancestorHasAllow || n.parent.isAllow;
+        n.ancestorHasBlock =
+          n.parent.ancestorHasBlock || n.parent.isBlock;
+      }
+    });
+  }
+
+  // Decide visibility + styling per comment in O(1) each.
+  for (const n of nodes.values()) {
+    let show;
+    if (!settings.filterEnabled) {
+      show = true;
+    } else if (n.isBlock) {
+      show = false;
+    } else if (
+      settings.hideBlockedThreads &&
+      (n.ancestorHasBlock || n.subtreeHasBlock)
+    ) {
+      show = false;
+    } else if (allowSet.size === 0 && settings.emptyAllowlistShowsAll) {
+      show = true;
+    } else if (n.isAllow) {
+      show = true;
+    } else if (
+      settings.showThreads &&
+      (n.ancestorHasAllow || n.subtreeHasAllow)
+    ) {
+      show = true;
+    } else {
+      show = false;
+    }
+
+    n.li.style.display = show ? "" : "none";
+
+    const commentDiv = n.li.querySelector('div[id^="comment-"]');
+    if (commentDiv) {
+      commentDiv.classList.toggle("blocklisted-user-comment", n.isBlock);
+    }
+  }
+};
+
+// Apply filter, debounced, on the next animation frame to coalesce bursts of
+// mutations (likes counter, time-ago tickers, dynamically loaded replies).
+let scheduled = false;
+const scheduleFilter = () => {
+  if (scheduled) return;
+  scheduled = true;
+  requestAnimationFrame(() => {
+    scheduled = false;
+    applyFilter();
   });
 };
 
-// Load settings from storage and apply filter
-const loadSettingsAndApply = () => {
+// Read settings from storage and apply.
+const loadSettings = (cb) => {
   chrome.storage.sync.get(null, function (data) {
-    // Update settings with stored values or defaults
     settings = {
       allowlist: data.allowlist || [],
       blocklist: data.blocklist || [],
@@ -182,65 +200,59 @@ const loadSettingsAndApply = () => {
         data.filterEnabled !== undefined ? data.filterEnabled : true,
       showThreads: data.showThreads !== undefined ? data.showThreads : true,
       hideBlockedThreads:
-        data.hideBlockedThreads !== undefined ? data.hideBlockedThreads : false,
+        data.hideBlockedThreads !== undefined
+          ? data.hideBlockedThreads
+          : false,
       emptyAllowlistShowsAll:
         data.emptyAllowlistShowsAll !== undefined
           ? data.emptyAllowlistShowsAll
           : true,
     };
-
-    // Apply filtering
-    applyFilter();
+    if (cb) cb();
   });
 };
 
-// Check if we're on the right domain before initializing
-const currentUrl = window.location.href;
-if (currentUrl.includes("smartmoneytrackerpremium.com")) {
-  // Initialize
-  loadSettingsAndApply();
+// Pick the smallest plausible subtree to observe so we don't react to every
+// unrelated DOM change (likes widgets, sidebars, ads).
+const pickObserverTarget = () =>
+  document.getElementById("comments") ||
+  document.querySelector("ol.comment-list, ul.comment-list, .comments-area") ||
+  document.body;
 
-  // Listen for messages from popup
-  chrome.runtime.onMessage.addListener(function (
-    message,
-    sender,
-    sendResponse
-  ) {
-    if (message.action === "updateSettings") {
-      // Update settings with new values
-      settings = { ...settings, ...message.settings };
+// Init: load settings first, THEN start observer. This avoids the race where
+// the observer fires applyFilter() with default settings before storage
+// resolves.
+addStyles();
+loadSettings(() => {
+  applyFilter();
 
-      // Apply filtering with new settings
-      applyFilter();
-    }
-  });
+  const target = pickObserverTarget();
 
-  // MutationObserver to detect dynamically loaded comments
-  const observer = new MutationObserver(function (mutations) {
-    let hasCommentChanges = false;
-    mutations.forEach(function (mutation) {
-      if (mutation.addedNodes.length > 0) {
-        for (const node of mutation.addedNodes) {
-          if (
-            node.nodeType === Node.ELEMENT_NODE &&
-            (node.classList.contains("comment") ||
-              node.querySelector(".comment"))
-          ) {
-            hasCommentChanges = true;
-            break;
-          }
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      // Only react when comment-related nodes are added or removed.
+      if (m.addedNodes.length === 0 && m.removedNodes.length === 0) continue;
+      const all = [...m.addedNodes, ...m.removedNodes];
+      for (const node of all) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        if (
+          node.matches?.("li.comment, .comment") ||
+          node.querySelector?.("li.comment, .comment")
+        ) {
+          scheduleFilter();
+          return;
         }
       }
-    });
-
-    if (hasCommentChanges) {
-      applyFilter();
     }
   });
 
-  // Start observing DOM changes
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-}
+  observer.observe(target, { childList: true, subtree: true });
+});
+
+// React to storage writes (popup save, another tab's popup, future code paths).
+// This is the single source of truth for setting changes — no tabs.sendMessage
+// hop required, so it works across all open SMT tabs simultaneously.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "sync") return;
+  loadSettings(scheduleFilter);
+});

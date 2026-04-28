@@ -1,9 +1,9 @@
 {
   "name": "SMT Comment Allowlist & Blocklist Filter",
-  "version": "1.0",
+  "version": "1.1.0",
   "description": "Filter comments by allowlisted and blocklisted users",
   "manifest_version": 3,
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -14,7 +14,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://www.smartmoneytrackerpremium.com/*"],
+      "matches": [
+        "*://smartmoneytrackerpremium.com/*",
+        "*://*.smartmoneytrackerpremium.com/*"
+      ],
       "js": ["content.js"]
     }
   ],

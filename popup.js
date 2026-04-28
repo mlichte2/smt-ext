@@ -5,11 +5,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
-      // Remove active class from all tabs and contents
       tabs.forEach((t) => t.classList.remove("active"));
       tabContents.forEach((c) => c.classList.remove("active"));
-
-      // Add active class to current tab and content
       tab.classList.add("active");
       document.getElementById(`${tab.dataset.tab}-tab`).classList.add("active");
     });
@@ -32,16 +29,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Load saved settings
   chrome.storage.sync.get(null, function (data) {
-    // Load lists
     if (data.allowlist) {
       allowlistTextarea.value = data.allowlist.join("\n");
     }
-
     if (data.blocklist) {
       blocklistTextarea.value = data.blocklist.join("\n");
     }
-
-    // Load options
     filterEnabledCheckbox.checked =
       data.filterEnabled !== undefined ? data.filterEnabled : true;
     showThreadsCheckbox.checked =
@@ -54,74 +47,50 @@ document.addEventListener("DOMContentLoaded", function () {
         : true;
   });
 
-  // Save allowlist
-  saveAllowlistButton.addEventListener("click", function () {
-    const allowlist = allowlistTextarea.value
-      .split("\n")
-      .map((username) => username.trim())
-      .filter((username) => username !== "");
+  // ---- Helpers -------------------------------------------------------------
 
-    chrome.storage.sync.set({ allowlist: allowlist }, function () {
-      showStatus("Allowlist saved!");
-      updateContentScript();
-    });
-  });
+  // Parse a textarea into a deduped list (case-insensitive).
+  // Preserves the first-seen casing the user typed.
+  function parseList(text) {
+    const seen = new Set();
+    const out = [];
+    for (const raw of text.split("\n")) {
+      const u = raw.trim();
+      if (!u) continue;
+      const key = u.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(u);
+    }
+    return out;
+  }
 
-  // Save blocklist
-  saveBlocklistButton.addEventListener("click", function () {
-    const blocklist = blocklistTextarea.value
-      .split("\n")
-      .map((username) => username.trim())
-      .filter((username) => username !== "");
+  // Find usernames present in both lists (case-insensitive).
+  function findCrossListConflicts(allow, block) {
+    const blockKeys = new Set(block.map((u) => u.toLowerCase()));
+    return allow.filter((u) => blockKeys.has(u.toLowerCase()));
+  }
 
-    chrome.storage.sync.set({ blocklist: blocklist }, function () {
-      showStatus("Blocklist saved!");
-      updateContentScript();
-    });
-  });
+  // Reflect the deduped list back into the textarea so the user sees the
+  // canonical state.
+  function writeBack(textarea, list) {
+    textarea.value = list.join("\n");
+  }
 
-  // Save options
-  saveOptionsButton.addEventListener("click", function () {
-    chrome.storage.sync.set(
-      {
-        filterEnabled: filterEnabledCheckbox.checked,
-        showThreads: showThreadsCheckbox.checked,
-        hideBlockedThreads: hideBlockedThreadsCheckbox.checked,
-        emptyAllowlistShowsAll: emptyAllowlistShowsAllCheckbox.checked,
-      },
-      function () {
-        showStatus("Options saved!");
-        updateContentScript();
+  // Disable button + swap label while a save is in flight, restore on done.
+  function setSaving(button, saving) {
+    if (saving) {
+      if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = button.textContent;
       }
-    );
-  });
-
-  // Update content script with all settings
-  function updateContentScript() {
-    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-      if (!tabs[0].url.includes("smartmoneytrackerpremium.com")) {
-        showStatus("Extension only works on smartmoneytrackerpremium.com");
-        return;
+      button.disabled = true;
+      button.textContent = "Saving…";
+    } else {
+      button.disabled = false;
+      if (button.dataset.originalLabel) {
+        button.textContent = button.dataset.originalLabel;
       }
-
-      chrome.tabs.sendMessage(tabs[0].id, {
-        action: "updateSettings",
-        settings: {
-          allowlist: allowlistTextarea.value
-            .split("\n")
-            .map((u) => u.trim())
-            .filter((u) => u !== ""),
-          blocklist: blocklistTextarea.value
-            .split("\n")
-            .map((u) => u.trim())
-            .filter((u) => u !== ""),
-          filterEnabled: filterEnabledCheckbox.checked,
-          showThreads: showThreadsCheckbox.checked,
-          hideBlockedThreads: hideBlockedThreadsCheckbox.checked,
-          emptyAllowlistShowsAll: emptyAllowlistShowsAllCheckbox.checked,
-        },
-      });
-    });
+    }
   }
 
   // Show status message
@@ -131,4 +100,100 @@ document.addEventListener("DOMContentLoaded", function () {
       statusDiv.textContent = "";
     }, 2000);
   }
+
+  // ---- Save handlers -------------------------------------------------------
+  // Each handler:
+  //   1. Parses + dedupes the textarea
+  //   2. Writes back the canonical list
+  //   3. Reads the OTHER list from storage (so the conflict warning reflects
+  //      the persisted state, not unsaved textarea edits)
+  //   4. Persists via chrome.storage.sync.set; the content script picks it up
+  //      via chrome.storage.onChanged (no tabs.sendMessage needed)
+  //   5. Disables/restores the button across the round-trip
+
+  saveAllowlistButton.addEventListener("click", function () {
+    const allowlist = parseList(allowlistTextarea.value);
+    writeBack(allowlistTextarea, allowlist);
+    setSaving(saveAllowlistButton, true);
+
+    chrome.storage.sync.get("blocklist", function (data) {
+      if (chrome.runtime.lastError) {
+        setSaving(saveAllowlistButton, false);
+        showStatus("Read failed: " + chrome.runtime.lastError.message);
+        return;
+      }
+      const persistedBlock = data.blocklist || [];
+
+      chrome.storage.sync.set({ allowlist: allowlist }, function () {
+        setSaving(saveAllowlistButton, false);
+        if (chrome.runtime.lastError) {
+          showStatus("Save failed: " + chrome.runtime.lastError.message);
+          return;
+        }
+        const conflicts = findCrossListConflicts(allowlist, persistedBlock);
+        if (conflicts.length) {
+          showStatus(
+            "Allowlist saved. Note: " +
+              conflicts.join(", ") +
+              " also in blocklist (blocklist wins)."
+          );
+        } else {
+          showStatus("Allowlist saved!");
+        }
+      });
+    });
+  });
+
+  saveBlocklistButton.addEventListener("click", function () {
+    const blocklist = parseList(blocklistTextarea.value);
+    writeBack(blocklistTextarea, blocklist);
+    setSaving(saveBlocklistButton, true);
+
+    chrome.storage.sync.get("allowlist", function (data) {
+      if (chrome.runtime.lastError) {
+        setSaving(saveBlocklistButton, false);
+        showStatus("Read failed: " + chrome.runtime.lastError.message);
+        return;
+      }
+      const persistedAllow = data.allowlist || [];
+
+      chrome.storage.sync.set({ blocklist: blocklist }, function () {
+        setSaving(saveBlocklistButton, false);
+        if (chrome.runtime.lastError) {
+          showStatus("Save failed: " + chrome.runtime.lastError.message);
+          return;
+        }
+        const conflicts = findCrossListConflicts(persistedAllow, blocklist);
+        if (conflicts.length) {
+          showStatus(
+            "Blocklist saved. Note: " +
+              conflicts.join(", ") +
+              " also in allowlist (blocklist wins)."
+          );
+        } else {
+          showStatus("Blocklist saved!");
+        }
+      });
+    });
+  });
+
+  saveOptionsButton.addEventListener("click", function () {
+    setSaving(saveOptionsButton, true);
+    chrome.storage.sync.set(
+      {
+        filterEnabled: filterEnabledCheckbox.checked,
+        showThreads: showThreadsCheckbox.checked,
+        hideBlockedThreads: hideBlockedThreadsCheckbox.checked,
+        emptyAllowlistShowsAll: emptyAllowlistShowsAllCheckbox.checked,
+      },
+      function () {
+        setSaving(saveOptionsButton, false);
+        if (chrome.runtime.lastError) {
+          showStatus("Save failed: " + chrome.runtime.lastError.message);
+          return;
+        }
+        showStatus("Options saved!");
+      }
+    );
+  });
 });

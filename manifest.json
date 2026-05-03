@@ -1,9 +1,9 @@
 {
   "name": "SMT Comment Allowlist & Blocklist Filter",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Filter comments by allowlisted and blocklisted users",
   "manifest_version": 3,
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
